@@ -1,0 +1,233 @@
+Kalender
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Mein Kalender</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f5f6fa;color:#202438;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+header{background:white;padding:20px 16px 12px;position:sticky;top:0;z-index:2;border-bottom:1px solid #eee}
+h1{font-size:25px;margin:0 0 14px}
+button,select,input{font:inherit}
+button{border:0;border-radius:12px;padding:10px 13px;background:#e9eaf1;color:#222}
+button:active{opacity:.6}
+.primary{background:#5265e8;color:white}
+nav{display:flex;gap:5px}
+nav button{flex:1;font-size:13px;padding:11px 2px}
+nav .active{background:#5265e8;color:white}
+.toolbar{display:flex;align-items:center;justify-content:space-between;margin:17px 14px}
+#heading{font-size:19px;font-weight:700;text-align:center}
+main{padding:0 12px 90px}
+.weekdays,.days{display:grid;grid-template-columns:repeat(7,1fr)}
+.weekdays div{text-align:center;color:#85899a;font-size:12px;padding:10px 0}
+.day{background:white;min-height:75px;border:1px solid #f1f1f5;padding:6px 3px;font-size:13px;overflow:hidden}
+.day.other{color:#bbb;background:#fafafa}
+.day.today .num{background:#5265e8;color:white;border-radius:50%;padding:5px}
+.day.selected{outline:2px solid #5265e8;outline-offset:-2px}
+.num{display:inline-block;min-width:25px;text-align:center}
+.dot{display:block;background:#dce1ff;color:#3343a4;border-radius:4px;font-size:10px;margin-top:4px;padding:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel{background:white;border-radius:16px;padding:14px;margin-top:12px}
+.panel h2{font-size:17px;margin:0 0 12px}
+.event{border-left:4px solid #5265e8;padding:12px;background:#f6f7fb;border-radius:8px;margin:7px 0;cursor:pointer}
+.small{font-size:12px;color:#777}
+.year{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.monthtile{background:white;border-radius:12px;padding:12px 4px;text-align:center;min-height:76px;font-size:13px}
+.monthtile strong{display:block;margin-bottom:7px}
+.monthtile span{font-size:11px;color:#777}
+.hour{display:flex;border-top:1px solid #eee;min-height:48px;gap:10px;padding:8px}
+.hour label{width:48px;color:#999;font-size:12px}
+.hour section{flex:1}
+.fab{position:fixed;bottom:25px;right:22px;border-radius:50%;width:58px;height:58px;font-size:30px;box-shadow:0 5px 20px #9998;z-index:3}
+dialog{border:0;border-radius:20px;width:calc(100% - 28px);max-width:420px;padding:22px}
+dialog::backdrop{background:#0007}
+dialog h2{margin-top:0}
+dialog label{display:block;font-size:13px;margin:12px 0 5px}
+dialog input,dialog select{width:100%;padding:12px;border:1px solid #ddd;border-radius:9px;background:white}
+.actions{display:flex;gap:8px;margin-top:20px}
+.actions button{flex:1}
+#notice{font-size:12px;color:#888;text-align:center;margin:15px}
+</style>
+</head>
+<body>
+<header>
+<h1>📅 Mein Kalender</h1>
+<nav id="tabs">
+<button data-view="day">Tag</button>
+<button data-view="week">Woche</button>
+<button data-view="month" class="active">Monat</button>
+<button data-view="year">Jahr</button>
+</nav>
+</header>
+
+<div class="toolbar">
+<button onclick="move(-1)">❮</button>
+<div id="heading"></div>
+<button onclick="move(1)">❯</button>
+<button onclick="goToday()">Heute</button>
+</div>
+
+<main id="content"></main>
+<p id="notice">Dein persönlicher Kalender</p>
+<div style="text-align:center;margin-bottom:100px">
+<button onclick="backup()">Termine exportieren</button>
+<button onclick="document.getElementById('importFile').click()">Importieren</button>
+<input type="file" id="importFile" accept=".json" hidden>
+</div>
+<button class="fab primary" onclick="editEvent()">+</button>
+
+<dialog id="editor">
+<h2 id="editorTitle">Termin</h2>
+<label>Bezeichnung</label>
+<input id="name" placeholder="Neuer Termin">
+<label>Datum</label>
+<input id="date" type="date">
+<label>Beginn</label>
+<input id="start" type="time" value="09:00">
+<label>Ende</label>
+<input id="end" type="time" value="10:00">
+<label>Farbe</label>
+<select id="color">
+<option value="#5265e8">Blau</option>
+<option value="#e45a71">Rot</option>
+<option value="#22a887">Grün</option>
+<option value="#d99a25">Gelb</option>
+<option value="#9855cc">Lila</option>
+</select>
+<div class="actions">
+<button onclick="editor.close()">Abbrechen</button>
+<button id="deleteBtn" onclick="deleteEvent()">Löschen</button>
+<button class="primary" onclick="saveEvent()">Speichern</button>
+</div>
+</dialog>
+
+<script>
+const $=id=>document.getElementById(id);
+const key="mein-kalender-v1";
+let events=[];
+try{events=JSON.parse(localStorage.getItem(key)||"[]")}catch(e){}
+let current=new Date();
+let view="month";
+let selectedId=null;
+const months=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+const weekdays=["Mo","Di","Mi","Do","Fr","Sa","So"];
+function pad(n){return String(n).padStart(2,"0")}
+function iso(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())}
+function fromISO(s){let [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)}
+function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function save(){localStorage.setItem(key,JSON.stringify(events))}
+function items(d){return events.filter(e=>e.date===iso(d)).sort((a,b)=>a.start.localeCompare(b.start))}
+function eventHTML(e){return `<div class="event" style="border-color:${e.color}" data-id="${e.id}"><b>${escapeHTML(e.name)}</b><div class="small">${e.start}–${e.end}</div></div>`}
+function eventList(d){let a=items(d);return a.length?a.map(eventHTML).join(""):'<p class="small">Keine Termine</p>'}
+function monday(d){let x=new Date(d);x.setDate(x.getDate()-(x.getDay()+6)%7);return x}
+function render(){
+document.querySelectorAll("[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
+let h="",title="";
+if(view==="month"){
+title=months[current.getMonth()]+" "+current.getFullYear();
+let first=new Date(current.getFullYear(),current.getMonth(),1);
+let start=monday(first);
+h='<div class="weekdays">'+weekdays.map(w=>`<div>${w}</div>`).join("")+'</div><div class="days">';
+for(let i=0;i<42;i++){
+let d=new Date(start);d.setDate(d.getDate()+i);
+let a=items(d);
+h+=`<div class="day ${d.getMonth()!==current.getMonth()?'other':''} ${iso(d)===iso(new Date())?'today':''} ${iso(d)===iso(current)?'selected':''}" data-date="${iso(d)}"><span class="num">${d.getDate()}</span>${a.slice(0,2).map(e=>`<span class="dot" style="background:${e.color}22;color:${e.color}">${escapeHTML(e.name)}</span>`).join("")}${a.length>2?'<span class="small">+'+(a.length-2)+'</span>':''}</div>`;
+}
+h+='</div><div class="panel"><h2>'+current.toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"})+'</h2>'+eventList(current)+'</div>';
+}
+if(view==="day"){
+title=current.toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"});
+h='<div class="panel">';
+for(let hour=0;hour<24;hour++){
+let a=items(current).filter(e=>Number(e.start.slice(0,2))===hour);
+h+=`<div class="hour"><label>${pad(hour)}:00</label><section>${a.map(eventHTML).join("")}</section></div>`;
+}
+h+='</div>';
+}
+if(view==="week"){
+let m=monday(current);
+let last=new Date(m);last.setDate(last.getDate()+6);
+title=m.toLocaleDateString("de-DE",{day:"numeric",month:"short"})+" – "+last.toLocaleDateString("de-DE",{day:"numeric",month:"short",year:"numeric"});
+for(let i=0;i<7;i++){
+let d=new Date(m);d.setDate(d.getDate()+i);
+h+=`<div class="panel"><h2>${d.toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"})}</h2>${eventList(d)}<button data-date="${iso(d)}">+ Termin</button></div>`;
+}
+}
+if(view==="year"){
+title=String(current.getFullYear());
+h='<div class="year">';
+for(let i=0;i<12;i++){
+let count=events.filter(e=>e.date.startsWith(current.getFullYear()+"-"+pad(i+1)+"-")).length;
+h+=`<div class="monthtile" data-month="${i}"><strong>${months[i]}</strong><span>${count} Termine</span></div>`;
+}
+h+='</div>';
+}
+$("heading").textContent=title;
+$("content").innerHTML=h;
+}
+function move(n){
+if(view==="day")current.setDate(current.getDate()+n);
+if(view==="week")current.setDate(current.getDate()+7*n);
+if(view==="month")current=new Date(current.getFullYear(),current.getMonth()+n,Math.min(current.getDate(),28));
+if(view==="year")current.setFullYear(current.getFullYear()+n);
+render();
+}
+function goToday(){current=new Date();render()}
+document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});
+$("content").onclick=e=>{
+let ev=e.target.closest("[data-id]");
+if(ev){editEvent(ev.dataset.id);return}
+let date=e.target.closest("[data-date]");
+if(date){current=fromISO(date.dataset.date);if(view==="month"){render()}else editEvent();return}
+let month=e.target.closest("[data-month]");
+if(month){current=new Date(current.getFullYear(),Number(month.dataset.month),1);view="month";render()}
+};
+function editEvent(id=null){
+selectedId=id;
+let e=events.find(x=>x.id===id);
+$("editorTitle").textContent=e?"Termin bearbeiten":"Neuer Termin";
+$("name").value=e?.name||"";
+$("date").value=e?.date||iso(current);
+$("start").value=e?.start||"09:00";
+$("end").value=e?.end||"10:00";
+$("color").value=e?.color||"#5265e8";
+$("deleteBtn").hidden=!e;
+$("editor").showModal();
+}
+function saveEvent(){
+let name=$("name").value.trim();
+if(!name||!$("date").value){alert("Bitte Titel und Datum eingeben.");return}
+if($("end").value<=$("start").value){alert("Das Ende muss nach dem Beginn liegen.");return}
+let e={id:selectedId||String(Date.now())+Math.random(),name,date:$("date").value,start:$("start").value,end:$("end").value,color:$("color").value};
+events=events.filter(x=>x.id!==selectedId);
+events.push(e);save();current=fromISO(e.date);$("editor").close();render();
+}
+function deleteEvent(){
+if(!selectedId||!confirm("Termin wirklich löschen?"))return;
+events=events.filter(x=>x.id!==selectedId);save();$("editor").close();render();
+}
+function backup(){
+let blob=new Blob([JSON.stringify(events,null,2)],{type:"application/json"});
+let a=document.createElement("a");
+a.href=URL.createObjectURL(blob);
+a.download="kalender-sicherung.json";
+a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+$("importFile").onchange=async e=>{
+let file=e.target.files[0];if(!file)return;
+try{
+let data=JSON.parse(await file.text());
+if(!Array.isArray(data)||!data.every(x=>typeof x.name==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(x.date)&&/^\d{2}:\d{2}$/.test(x.start)&&/^\d{2}:\d{2}$/.test(x.end)&&/^#[0-9a-fA-F]{6}$/.test(x.color)))throw Error();
+if(confirm("Gespeicherte Termine durch die Sicherung ersetzen?")){
+events=data.map(x=>({id:String(x.id),name:x.name,date:x.date,start:x.start,end:x.end,color:x.color}));
+save();render();alert("Import erfolgreich");
+}
+}catch(err){alert("Ungültige Sicherungsdatei")}
+e.target.value="";
+};
+render();
+</script>
+</body>
+</html>
